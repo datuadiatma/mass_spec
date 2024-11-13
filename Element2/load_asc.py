@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import tkinter as tk
-from tkinter import filedialog
+from tkinter import filedialog, simpledialog, messagebox
 
 # Function to assign sample type
 def assign_sample_type(sample_id):
@@ -91,24 +91,34 @@ def load_asc(file_name):
 
     return df_merge
 
-    
 
 if __name__ == "__main__":
-# Initialize Tkinter and hide the root window
+    # Initialize Tkinter
     root = tk.Tk()
-    root.withdraw()  # Hide the root window
+    root.withdraw()  # Hide the main window
 
     # Open file dialog to select the .ASC file
     filename_asc = filedialog.askopenfilename(title="Select the ASC file", filetypes=[("ASC files", "*.ASC"), ("All files", "*.*")])
-    
-    if filename_asc:
-        # Prompt the user for the output CSV file name
-        file_csv = input("The filename for the converted file (without extension): ")
-        file_csv_ext = file_csv + ".csv"
 
-        # Process the .ASC file and save the output as a CSV file
-        df = load_asc(filename_asc)
-        df.to_csv(file_csv_ext, index=None)  # Save the DataFrame to CSV without the index
-        print(f"File saved as {file_csv_ext}")
+    if filename_asc:
+        # Prompt the user for the output directory
+        output_dir = filedialog.askdirectory(title="Select the output directory")
+
+        if output_dir:
+            # Prompt the user for the output file name (without extension)
+            file_csv = simpledialog.askstring("Output File Name", "Enter the filename (without extension):")
+
+            if file_csv:
+                file_csv_ext = f"{file_csv}.csv"
+                output_path = f"{output_dir}/{file_csv_ext}"
+
+                # Process the .ASC file and save the output as a CSV file
+                df = load_asc(filename_asc)
+                df.to_csv(output_path, index=None)
+                messagebox.showinfo("File Saved", f"File saved as {output_path}")
+            else:
+                messagebox.showerror("Error", "No file name provided.")
+        else:
+            messagebox.showerror("Error", "No output directory selected.")
     else:
-        print("No file selected.")
+        messagebox.showerror("Error", "No file selected.")
