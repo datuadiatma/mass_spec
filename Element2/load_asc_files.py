@@ -2,7 +2,8 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import tkinter as tk
-from tkinter import filedialog, simpledialog, messagebox
+from tkinter import filedialog, messagebox
+import os
 
 def assign_sample_type(sample_id):
     if "std" in sample_id.lower():
@@ -29,6 +30,44 @@ def assign_standard_type(sample_id):
         return "std_1"
     else:
         return "non_std"
+
+def select_files_from_multiple_folders():
+    """
+    Allow users to select files from multiple folders and build a cumulative list.
+    Returns a list of selected file paths.
+    """
+    selected_files = []
+    
+    while True:
+        # Get files from current folder
+        new_files = filedialog.askopenfilenames(
+            title=f"Select ASC files (Current total: {len(selected_files)})\nPress Cancel when done",
+            filetypes=[("ASC files", "*.ASC"), ("All files", "*.*")]
+        )
+        
+        if not new_files:  # If Cancel is pressed (no files selected)
+            if selected_files:  # If we already have some files
+                return selected_files
+            else:  # If no files were selected at all
+                if messagebox.askyesno("No Files", "No files selected. Do you want to try again?"):
+                    continue
+                else:
+                    return None
+        
+        # Add new files to our list
+        selected_files.extend(new_files)
+        
+        # Show current selection and ask whether to continue
+        files_message = "\n".join([os.path.basename(f) for f in new_files])
+        should_continue = messagebox.askyesno(
+            "Continue?",
+            f"Added {len(new_files)} files:\n{files_message}\n\n"
+            f"Total files selected: {len(selected_files)}\n\n"
+            "Do you want to select files from another folder?"
+        )
+        
+        if not should_continue:
+            return selected_files
 
 def load_asc_files(file_names):
     """
@@ -105,43 +144,64 @@ def load_asc_files(file_names):
     
     return final_df
 
+def save_dataframe(df, base_path):
+    """
+    Save the DataFrame in both CSV and Excel formats
+    
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        DataFrame to save
+    base_path : str
+        Base path for saving files (without extension)
+    """
+    # Remove any extension from the base path
+    base_path = os.path.splitext(base_path)[0]
+    
+    # Save as CSV
+    csv_path = f"{base_path}.csv"
+    df.to_csv(csv_path, index=None)
+    
+    # Save as Excel
+    xlsx_path = f"{base_path}.xlsx"
+    df.to_excel(xlsx_path, index=None)
+    
+    return csv_path, xlsx_path
+
 if __name__ == "__main__":
     # Initialize Tkinter
     root = tk.Tk()
     root.withdraw()
     
-    # Open file dialog to select multiple .ASC files
-    filenames = filedialog.askopenfilenames(
-        title="Select ASC files",
-        filetypes=[("ASC files", "*.ASC"), ("All files", "*.*")]
-    )
+    # Get files from multiple folders
+    filenames = select_files_from_multiple_folders()
     
     if filenames:
-        # Prompt for output directory
-        output_dir = filedialog.askdirectory(title="Select the output directory")
+        # Use asksaveasfilename to get both directory and filename
+        output_path = filedialog.asksaveasfilename(
+            title="Save combined data as...",
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("Excel files", "*.xlsx"), ("All files", "*.*")]
+        )
         
-        if output_dir:
-            # Prompt for output filename
-            file_csv = simpledialog.askstring("Output File Name", "Enter the filename (without extension):")
-            
-            if file_csv:
-                try:
-                    # Process all selected files
-                    combined_df = load_asc_files(filenames)
-                    
-                    # Save combined results
-                    output_path = f"{output_dir}/{file_csv}.csv"
-                    combined_df.to_csv(output_path, index=None)
-                    
-                    messagebox.showinfo(
-                        "Files Processed",
-                        f"Successfully processed {len(filenames)} files.\nCombined data saved as {output_path}"
-                    )
-                except Exception as e:
-                    messagebox.showerror("Error", f"An error occurred: {str(e)}")
-            else:
-                messagebox.showerror("Error", "No file name provided.")
+        if output_path:
+            try:
+                # Process all selected files
+                combined_df = load_asc_files(filenames)
+                
+                # Save combined results in both formats
+                csv_path, xlsx_path = save_dataframe(combined_df, output_path)
+                
+                messagebox.showinfo(
+                    "Files Processed",
+                    f"Successfully processed {len(filenames)} files.\n"
+                    f"Data saved as:\n"
+                    f"CSV: {os.path.basename(csv_path)}\n"
+                    f"Excel: {os.path.basename(xlsx_path)}"
+                )
+            except Exception as e:
+                messagebox.showerror("Error", f"An error occurred: {str(e)}")
         else:
-            messagebox.showerror("Error", "No output directory selected.")
+            messagebox.showerror("Error", "No output path selected.")
     else:
         messagebox.showerror("Error", "No files selected.")
