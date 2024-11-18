@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import os
@@ -55,6 +56,18 @@ def get_sample_type():
     )
     return 'total_digest' if response else 'i_ca'
 
+def get_calibration():
+    """
+    Ask user if they want to produce calibration table.
+    """
+    response = messagebox.askyesno(
+        "Calibration Table!",
+        "Do you want to produce calibration curces?\n\n"
+        "Yes = You must provide concetration data\n"
+        "No"
+    )
+    return response
+
 def filter_columns(df, sample_type):
     """
     Filter DataFrame columns based on sample type.
@@ -94,6 +107,43 @@ def filter_columns(df, sample_type):
     existing_cols = [col for col in columns_to_keep if col in df.columns]
     
     return df[existing_cols]
+
+def calib_dataframe(df_filt, df_c):
+    """Combine filtered dataframe with concentration data
+    
+    Params
+    ------
+    df_filt : DataFrame
+        Filtered pandas dataframe containing analytes that will be merged
+    df_c : DataFrame
+        Concetration data for each Standard_Type
+    
+    Returns
+    -------
+    df_calib : DataFrame
+        Combined dataframe
+    """
+    # Define analyte
+    analyte = df_c.columns.to_list()
+    
+    # Merge dataframes based on Standard_Type
+    dmerge = df_filt[df_filt.Standard_Type != 'non_std'][analyte].merge(df_c, 
+                on='Standard_Type', how='left', suffixes=('_cps', '_conc'))
+    
+    # Sort based on Standard_Type
+    dmerge = dmerge.sort_values(by='Standard_Type')
+
+    # Get all column names without suffixes
+    base_columns = list(set(col.rsplit('_', 1)[0] for col in dmerge.columns if '_cps' in col))
+
+    # Create ordered column list
+    ordered_columns = ['Standard_Type']
+    for base_col in base_columns:
+        ordered_columns.extend([f'{base_col}_cps', f'{base_col}_conc'])
+    
+    df_calib = dmerge[ordered_columns]
+    
+    return df_calib
 
 def select_files_from_multiple_folders():
     """
@@ -227,7 +277,7 @@ def load_asc_files(file_names):
     
     return final_df
 
-def save_dataframe(df, base_path, filtered=False):
+def save_dataframe(df, base_path, filtered=False, calib=False):
     """
     Save the DataFrame in both CSV and Excel formats
     
@@ -246,6 +296,10 @@ def save_dataframe(df, base_path, filtered=False):
     # Add filtered suffix if needed
     if filtered:
         base_path = f"{base_path}_filtered"
+    
+    # Add calibration suffix if needed
+    if calib:
+        base_path = f"{base_path}_calib"
     
     # Save as CSV
     csv_path = f"{base_path}.csv"
@@ -290,7 +344,29 @@ if __name__ == "__main__":
                 filtered_csv_path, filtered_xlsx_path = save_dataframe(
                     filtered_df, output_path, filtered=True
                 )
+                # Get whether user want to supply calibration data
+                calibration =get_calibration()
                 
+                if calibration:
+                    calib_file = filedialog.askopenfilename(
+                        title="Select the Calibration Table", 
+                        filetypes=[("CSV files", "*.csv"), 
+                        ("All files", "*.*")]
+                    )
+
+                    df_calib = pd.read_csv(calib_file)
+                    df_calib_merge =calib_dataframe(filtered_df, df_calib)
+
+                    # Export Calibration Table
+                    calib_csv_path, calib_xlsx_path = save_dataframe(
+                    df_calib_merge, output_path, calib=True
+                )
+
+                else:
+                    messagebox.showerror(
+                        "It's OK", "No Concetration data is selected."
+                    )
+
                 messagebox.showinfo(
                     "Files Processed",
                     f"Successfully processed {len(filenames)} files.\n\n"
