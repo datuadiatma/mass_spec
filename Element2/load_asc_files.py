@@ -24,8 +24,18 @@ def assign_standard_type(sample_id):
         return "std_4"
     if "std_5" in sample_id.lower(): 
         return "std_5"
+    if "std_6x" in sample_id.lower(): 
+        return "std_6x"
     if "std_6" in sample_id.lower(): 
         return "std_6"
+    if "std_7" in sample_id.lower(): 
+        return "std_7"
+    if "std_8x" in sample_id.lower(): 
+        return "std_8x"
+    if "std_8" in sample_id.lower(): 
+        return "std_8"
+    if "std_9" in sample_id.lower(): 
+        return "std_9"
     if "std_1" in sample_id.lower(): 
         return "std_1"
     else:
