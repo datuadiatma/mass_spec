@@ -277,7 +277,7 @@ def load_asc_files(file_names):
     
     return final_df
 
-def save_dataframe(df, base_path, filtered=False, calib=False):
+def save_dataframe(df, base_path, excel=False, filtered=False, calib=False):
     """
     Save the DataFrame in both CSV and Excel formats
     
@@ -306,10 +306,13 @@ def save_dataframe(df, base_path, filtered=False, calib=False):
     df.to_csv(csv_path, index=None)
     
     # Save as Excel
-    xlsx_path = f"{base_path}.xlsx"
-    df.to_excel(xlsx_path, index=None)
+    if excel:
+        xlsx_path = f"{base_path}.xlsx"
+        df.to_excel(xlsx_path, index=None)
     
-    return csv_path, xlsx_path
+        return csv_path, xlsx_path
+    else:
+        return csv_path
 
 
 if __name__ == "__main__":
@@ -337,16 +340,17 @@ if __name__ == "__main__":
                 combined_df = load_asc_files(filenames)
                 
                 # Save original combined results
-                csv_path, xlsx_path = save_dataframe(combined_df, output_path)
+                csv_path = save_dataframe(combined_df, output_path)
                 
                 # Create and save filtered version
                 filtered_df = filter_columns(combined_df, sample_type)
-                filtered_csv_path, filtered_xlsx_path = save_dataframe(
+                filtered_csv_path = save_dataframe(
                     filtered_df, output_path, filtered=True
                 )
                 # Get whether user want to supply calibration data
                 calibration =get_calibration()
                 
+                calib_csv_path = "None"
                 if calibration:
                     calib_file = filedialog.askopenfilename(
                         title="Select the Calibration Table", 
@@ -358,7 +362,7 @@ if __name__ == "__main__":
                     df_calib_merge =calib_dataframe(filtered_df, df_calib)
 
                     # Export Calibration Table
-                    calib_csv_path, calib_xlsx_path = save_dataframe(
+                    calib_csv_path = save_dataframe(
                     df_calib_merge, output_path, calib=True
                 )
 
@@ -372,10 +376,10 @@ if __name__ == "__main__":
                     f"Successfully processed {len(filenames)} files.\n\n"
                     f"Complete data saved as:\n"
                     f"CSV: {os.path.basename(csv_path)}\n"
-                    f"Excel: {os.path.basename(xlsx_path)}\n\n"
                     f"Filtered data saved as:\n"
                     f"CSV: {os.path.basename(filtered_csv_path)}\n"
-                    f"Excel: {os.path.basename(filtered_xlsx_path)}"
+                    f"Calibration table saved as:\n"
+                    f"CSV: {os.path.basename(calib_csv_path)}\n"
                 )
             except Exception as e:
                 messagebox.showerror("Error", f"An error occurred: {str(e)}")
