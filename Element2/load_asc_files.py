@@ -145,6 +145,98 @@ def calib_dataframe(df_filt, df_c):
     
     return df_calib
 
+def subplots_centered(nrows, ncols, figsize, nfigs):
+    """
+    Modification of matplotlib plt.subplots(),
+    useful when some subplots are empty.
+    
+    It returns a grid where the plots
+    in the **last** row are centered.
+    
+    Inputs
+    ------
+        nrows, ncols, figsize: same as plt.subplots()
+        nfigs: real number of figures
+    """
+    assert nfigs < nrows * ncols, "No empty subplots, use normal plt.subplots() instead"
+    
+    fig = plt.figure(figsize=figsize)
+    axs = []
+    
+    m = nfigs % ncols
+    m = range(1, ncols+1)[-m]  # subdivision of columns
+    gs = gridspec.GridSpec(nrows, m*ncols)
+
+    for i in range(0, nfigs):
+        row = i // ncols
+        col = i % ncols
+
+        if row == nrows-1: # center only last row
+            off = int(m * (ncols - nfigs % ncols) / 2)
+        else:
+            off = 0
+
+        ax = plt.subplot(gs[row, m*col + off : m*(col+1) + off])
+        axs.append(ax)
+        
+    return fig, axs
+
+def linreg(x_input, y_input):
+    mask = ~np.isnan(y_input)
+    x = x_input[mask]
+    y = y_input[mask]
+    coef = np.polyfit(x, y, 1)
+    slope = coef[0]
+    intercept = coef[1]
+
+    # Predict y
+    y_pred = np.polyval(coef, x)
+    y_mean = np.mean(y)
+    ss_tot = np.sum((y - y_mean)**2)
+    ss_res = np.sum((y-y_pred)**2)
+    rsq = 1 - (ss_res/ss_tot)
+
+    return slope, intercept, rsq
+
+def plot_calibration(dframe, save_location=False):
+    from math import ceil
+    # Get the list of header to plot
+    header_to_plot = dframe.columns.to_list()[1:]
+
+    # calculate the number of plots need to be made
+    num_plots = int(len(header_to_plot)/2)
+
+    # number of rows in subplot
+    num_rows = int(ceil(num_plots/3))
+    
+    # Fig_size
+    figsize_x = 3.5 * 3
+    figsize_y = 3 * num_rows
+
+    # initiate figure
+    fig, axs = subplots_centered(num_rows, 3, figsize=(figsize_x, figsize_y), nfigs=num_plots)
+
+
+    for i in range(num_plots):
+        j=i*2
+        x = dframe[header_to_plot[j]].to_numpy()
+        y = dframe[header_to_plot[j+1]].to_numpy()
+
+        m, c, rsq = linreg(x, y)
+
+        axs[i].scatter(x, y, ec='maroon', fc='None', s=100)
+        axs[i].plot(x, m*x + c, 'k-', zorder=-5)
+        axs[i].set_xlabel(header_to_plot[j])
+        axs[i].set_ylabel(header_to_plot[j+1])
+        axs[i].ticklabel_format(axis='x', style='sci', useMathText=True)
+        axs[i].text(0.97, 0.05, '$Y$ = {:.2e}$X$ + {:.2e}\n$R^2$ = {:.3f}'.format(m, c, rsq),
+           transform=axs[i].transAxes, ha='right', fontsize=10)
+        
+    plt.tight_layout()
+
+    if save_location is not False:
+        plt.savefig(save_location+".png", dpi=300)
+
 def select_files_from_multiple_folders():
     """
     Allow users to select files from multiple folders and build a cumulative list.
@@ -277,7 +369,7 @@ def load_asc_files(file_names):
     
     return final_df
 
-def save_dataframe(df, base_path, filtered=False, calib=False):
+def save_dataframe(df, base_path, excel=False, filtered=False, calib=False):
     """
     Save the DataFrame in both CSV and Excel formats
     
@@ -306,10 +398,13 @@ def save_dataframe(df, base_path, filtered=False, calib=False):
     df.to_csv(csv_path, index=None)
     
     # Save as Excel
-    xlsx_path = f"{base_path}.xlsx"
-    df.to_excel(xlsx_path, index=None)
+    if excel:
+        xlsx_path = f"{base_path}.xlsx"
+        df.to_excel(xlsx_path, index=None)
     
-    return csv_path, xlsx_path
+        return csv_path, xlsx_path
+    else:
+        return csv_path
 
 
 if __name__ == "__main__":
@@ -337,16 +432,17 @@ if __name__ == "__main__":
                 combined_df = load_asc_files(filenames)
                 
                 # Save original combined results
-                csv_path, xlsx_path = save_dataframe(combined_df, output_path)
+                csv_path = save_dataframe(combined_df, output_path)
                 
                 # Create and save filtered version
                 filtered_df = filter_columns(combined_df, sample_type)
-                filtered_csv_path, filtered_xlsx_path = save_dataframe(
+                filtered_csv_path = save_dataframe(
                     filtered_df, output_path, filtered=True
                 )
                 # Get whether user want to supply calibration data
                 calibration =get_calibration()
                 
+                calib_csv_path = "None"
                 if calibration:
                     calib_file = filedialog.askopenfilename(
                         title="Select the Calibration Table", 
@@ -357,8 +453,11 @@ if __name__ == "__main__":
                     df_calib = pd.read_csv(calib_file)
                     df_calib_merge =calib_dataframe(filtered_df, df_calib)
 
+                    # Save calibration plot
+                    plot_calibration(df_calib_merge, output_path)
+
                     # Export Calibration Table
-                    calib_csv_path, calib_xlsx_path = save_dataframe(
+                    calib_csv_path = save_dataframe(
                     df_calib_merge, output_path, calib=True
                 )
 
@@ -372,10 +471,10 @@ if __name__ == "__main__":
                     f"Successfully processed {len(filenames)} files.\n\n"
                     f"Complete data saved as:\n"
                     f"CSV: {os.path.basename(csv_path)}\n"
-                    f"Excel: {os.path.basename(xlsx_path)}\n\n"
                     f"Filtered data saved as:\n"
                     f"CSV: {os.path.basename(filtered_csv_path)}\n"
-                    f"Excel: {os.path.basename(filtered_xlsx_path)}"
+                    f"Calibration table saved as:\n"
+                    f"CSV: {os.path.basename(calib_csv_path)}\n"
                 )
             except Exception as e:
                 messagebox.showerror("Error", f"An error occurred: {str(e)}")
