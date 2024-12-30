@@ -145,6 +145,48 @@ def calib_dataframe(df_filt, df_c):
     
     return df_calib
 
+def calculate_blank_averages(filtered_df):
+    """
+    Calculate average CPS values for blank samples for each analyte
+    
+    Parameters
+    ----------
+    filtered_df : pandas.DataFrame
+        Filtered DataFrame containing both blank and non-blank samples
+        
+    Returns
+    -------
+    pd.Series
+        Series containing average blank values for each analyte
+    """
+    # Get blank samples
+    blank_df = filtered_df[filtered_df['Sample_Type'] == 'blank']
+    
+    if blank_df.empty:
+        raise ValueError("No blank samples found in the dataset")
+    
+    # Get analyte columns (excluding metadata and RSD columns)
+    analyte_cols = [col for col in filtered_df.columns 
+                   if not any(x in col.lower() for x in ['sample_id', 'unique_id', 'sample_type', 'standard_type', '_rsd'])]
+    
+    # Calculate mean blank values for each analyte
+    blank_averages = blank_df[analyte_cols].mean()
+    
+    # Calculate standard deviation of blanks for quality control
+    blank_stds = blank_df[analyte_cols].std()
+    
+    # Calculate relative standard deviation of blanks (%)
+    blank_rsds = (blank_stds / blank_averages * 100)
+    
+    # Create a DataFrame with blank statistics
+    blank_stats = pd.DataFrame({
+        'mean': blank_averages,
+        'std': blank_stds,
+        'rsd': blank_rsds
+    })
+    
+    return blank_stats
+
 def subplots_centered(nrows, ncols, figsize, nfigs):
     """
     Modification of matplotlib plt.subplots(),
