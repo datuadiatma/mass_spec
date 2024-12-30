@@ -181,7 +181,24 @@ def subplots_centered(nrows, ncols, figsize, nfigs):
         
     return fig, axs
 
-def linreg(x_input, y_input):
+def linreg(x_input, y_input, analyte_name):
+    """
+    Perform linear regression and return coefficients with analyte information
+    
+    Parameters
+    ----------
+    x_input : np.array
+        Input x values (typically CPS)
+    y_input : np.array
+        Input y values (typically concentration)
+    analyte_name : str
+        Name of the analyte being calibrated
+        
+    Returns
+    -------
+    dict
+        Dictionary containing slope, intercept, r-squared and analyte name
+    """
     mask = ~np.isnan(y_input)
     x = x_input[mask]
     y = y_input[mask]
@@ -196,46 +213,120 @@ def linreg(x_input, y_input):
     ss_res = np.sum((y-y_pred)**2)
     rsq = 1 - (ss_res/ss_tot)
 
-    return slope, intercept, rsq
+    return {
+        'analyte': analyte_name,
+        'slope': slope,
+        'intercept': intercept,
+        'r_squared': rsq
+    }
 
 def plot_calibration(dframe, save_location=False):
+    """
+    Plot calibration curves and return calibration coefficients
+    
+    Parameters
+    ----------
+    dframe : pandas.DataFrame
+        Calibration dataframe containing CPS and concentration columns
+    save_location : str, optional
+        Location to save the plot
+        
+    Returns
+    -------
+    pandas.DataFrame
+        Dataframe containing calibration coefficients for each analyte
+    """
     from math import ceil
-    # Get the list of header to plot
+    
+    # Get the list of headers to plot
     header_to_plot = dframe.columns.to_list()[1:]
 
-    # calculate the number of plots need to be made
+    # Calculate the number of plots needed
     num_plots = int(len(header_to_plot)/2)
 
-    # number of rows in subplot
+    # Number of rows in subplot
     num_rows = int(ceil(num_plots/3))
     
     # Fig_size
     figsize_x = 3.5 * 3
     figsize_y = 3 * num_rows
 
-    # initiate figure
+    # Initiate figure
     fig, axs = subplots_centered(num_rows, 3, figsize=(figsize_x, figsize_y), nfigs=num_plots)
 
+    # Store calibration coefficients
+    calibration_coeffs = []
 
     for i in range(num_plots):
-        j=i*2
+        j = i*2
         x = dframe[header_to_plot[j]].to_numpy()
         y = dframe[header_to_plot[j+1]].to_numpy()
+        
+        # Get analyte name from the concentration column (removing '_conc' suffix)
+        analyte_name = header_to_plot[j+1].rsplit('_', 1)[0]
+        
+        # Calculate regression and store coefficients
+        coeff_dict = linreg(x, y, analyte_name)
+        calibration_coeffs.append(coeff_dict)
 
-        m, c, rsq = linreg(x, y)
-
+        # Plotting code remains the same
         axs[i].scatter(x, y, ec='maroon', fc='None', s=100)
-        axs[i].plot(x, m*x + c, 'k-', zorder=-5)
+        axs[i].plot(x, coeff_dict['slope']*x + coeff_dict['intercept'], 'k-', zorder=-5)
         axs[i].set_xlabel(header_to_plot[j])
         axs[i].set_ylabel(header_to_plot[j+1])
         axs[i].ticklabel_format(axis='x', style='sci', useMathText=True)
-        axs[i].text(0.97, 0.05, '$Y$ = {:.2e}$X$ + {:.2e}\n$R^2$ = {:.3f}'.format(m, c, rsq),
-           transform=axs[i].transAxes, ha='right', fontsize=10)
+        axs[i].text(0.97, 0.05, 
+                   '$Y$ = {:.2e}$X$ + {:.2e}\n$R^2$ = {:.3f}'.format(
+                       coeff_dict['slope'], 
+                       coeff_dict['intercept'], 
+                       coeff_dict['r_squared']),
+                   transform=axs[i].transAxes, ha='right', fontsize=10)
         
     plt.tight_layout()
 
     if save_location is not False:
-        plt.savefig(save_location+".png", dpi=300)
+        save_loc = os.path.splitext(save_location)[0]+".png"
+        plt.savefig(save_loc, dpi=300)
+    
+    # Convert coefficients to DataFrame
+    coeff_df = pd.DataFrame(calibration_coeffs)
+    
+    return coeff_df
+
+def calculate_concentrations(filtered_df, coeff_df):
+    """
+    Calculate concentrations using calibration coefficients
+    
+    Parameters
+    ----------
+    filtered_df : pandas.DataFrame
+        DataFrame containing the filtered CPS data
+    coeff_df : pandas.DataFrame
+        DataFrame containing calibration coefficients
+        
+    Returns
+    -------
+    pandas.DataFrame
+        DataFrame with calculated concentrations added
+    """
+    # Create a copy of the input DataFrame
+    result_df = filtered_df.copy()
+    
+    # Add calculated concentrations for each analyte
+    for _, row in coeff_df.iterrows():
+        analyte = row['analyte']
+        slope = row['slope']
+        intercept = row['intercept']
+        
+        # Column name for CPS values (assuming format like 'Ti47(LR)')
+        cps_col = f"{analyte}"
+        
+        # Calculate concentration
+        if cps_col in filtered_df.columns:
+            conc_col = f"{analyte}_calc_conc"
+            result_df[conc_col] = (filtered_df[cps_col] * slope) + intercept
+    
+    return result_df
 
 def select_files_from_multiple_folders():
     """
@@ -391,7 +482,7 @@ def save_dataframe(df, base_path, excel=False, filtered=False, calib=False):
     
     # Add calibration suffix if needed
     if calib:
-        base_path = f"{base_path}_calib"
+        base_path = f"{base_path}_calibration_table"
     
     # Save as CSV
     csv_path = f"{base_path}.csv"
@@ -443,6 +534,7 @@ if __name__ == "__main__":
                 calibration =get_calibration()
                 
                 calib_csv_path = "None"
+                
                 if calibration:
                     calib_file = filedialog.askopenfilename(
                         title="Select the Calibration Table", 
@@ -451,15 +543,30 @@ if __name__ == "__main__":
                     )
 
                     df_calib = pd.read_csv(calib_file)
-                    df_calib_merge =calib_dataframe(filtered_df, df_calib)
+                    df_calib_merge = calib_dataframe(filtered_df, df_calib)
 
-                    # Save calibration plot
-                    plot_calibration(df_calib_merge, output_path)
-
+                    # Get calibration coefficients and plot
+                    coeff_df = plot_calibration(df_calib_merge, output_path)
+                    
+                    # Calculate concentrations for all samples
+                    results_df = calculate_concentrations(filtered_df, coeff_df)
+                    
+                    # Save calibration coefficients
+                    coef_path = os.path.splitext(output_path)[0]+"_coefficients"
+                    coeff_csv_path = save_dataframe(
+                        coeff_df, coef_path, excel=False
+                    )
+                    
+                    # Save results with calculated concentrations
+                    result_path = os.path.splitext(output_path)[0]+"_results"
+                    results_csv_path = save_dataframe(
+                        results_df, result_path, excel=False
+                    )
+                    
                     # Export Calibration Table
                     calib_csv_path = save_dataframe(
-                    df_calib_merge, output_path, calib=True
-                )
+                        df_calib_merge, output_path, calib=True
+                    )
 
                 else:
                     messagebox.showerror(
