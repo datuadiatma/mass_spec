@@ -502,7 +502,7 @@ def load_asc_files(file_names):
     
     return final_df
 
-def save_dataframe(df, base_path, excel=False, filtered=False, calib=False):
+def save_dataframe(df, base_path, excel=False, filtered=False, calib=False, blank=False, results=False, coeff=False):
     """
     Save the DataFrame in both CSV and Excel formats
     
@@ -514,27 +514,38 @@ def save_dataframe(df, base_path, excel=False, filtered=False, calib=False):
         Base path for saving files (without extension)
     filtered : bool
         Whether this is a filtered DataFrame (adds _filtered to filename)
+    calib : bool
+        Whether this is a calibration table
+    blank : bool
+        Whether this is blank statistics
+    results : bool
+        Whether this is results with calculated concentrations
+    coeff : bool
+        Whether this is calibration coefficients
     """
     # Remove any extension from the base path
     base_path = os.path.splitext(base_path)[0]
     
-    # Add filtered suffix if needed
+    # Add appropriate suffix
     if filtered:
         base_path = f"{base_path}_filtered"
-    
-    # Add calibration suffix if needed
-    if calib:
+    elif calib:
         base_path = f"{base_path}_calibration_table"
+    elif blank:
+        base_path = f"{base_path}_blank_statistics"
+    elif results:
+        base_path = f"{base_path}_results"
+    elif coeff:
+        base_path = f"{base_path}_coefficients"
     
     # Save as CSV
     csv_path = f"{base_path}.csv"
     df.to_csv(csv_path, index=None)
     
-    # Save as Excel
+    # Save as Excel if requested
     if excel:
         xlsx_path = f"{base_path}.xlsx"
         df.to_excel(xlsx_path, index=None)
-    
         return csv_path, xlsx_path
     else:
         return csv_path
