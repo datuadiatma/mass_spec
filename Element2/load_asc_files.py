@@ -145,6 +145,48 @@ def calib_dataframe(df_filt, df_c):
     
     return df_calib
 
+def calculate_blank_averages(filtered_df):
+    """
+    Calculate average CPS values for blank samples for each analyte
+    
+    Parameters
+    ----------
+    filtered_df : pandas.DataFrame
+        Filtered DataFrame containing both blank and non-blank samples
+        
+    Returns
+    -------
+    pd.Series
+        Series containing average blank values for each analyte
+    """
+    # Get blank samples
+    blank_df = filtered_df[filtered_df['Sample_Type'] == 'blank']
+    
+    if blank_df.empty:
+        raise ValueError("No blank samples found in the dataset")
+    
+    # Get analyte columns (excluding metadata and RSD columns)
+    analyte_cols = [col for col in filtered_df.columns 
+                   if not any(x in col.lower() for x in ['sample_id', 'unique_id', 'sample_type', 'standard_type', '_rsd'])]
+    
+    # Calculate mean blank values for each analyte
+    blank_averages = blank_df[analyte_cols].mean()
+    
+    # Calculate standard deviation of blanks for quality control
+    blank_stds = blank_df[analyte_cols].std()
+    
+    # Calculate relative standard deviation of blanks (%)
+    blank_rsds = (blank_stds / blank_averages * 100)
+    
+    # Create a DataFrame with blank statistics
+    blank_stats = pd.DataFrame({
+        'mean': blank_averages,
+        'std': blank_stds,
+        'rsd': blank_rsds
+    })
+    
+    return blank_stats
+
 def subplots_centered(nrows, ncols, figsize, nfigs):
     """
     Modification of matplotlib plt.subplots(),
@@ -181,7 +223,24 @@ def subplots_centered(nrows, ncols, figsize, nfigs):
         
     return fig, axs
 
-def linreg(x_input, y_input):
+def linreg(x_input, y_input, analyte_name):
+    """
+    Perform linear regression and return coefficients with analyte information
+    
+    Parameters
+    ----------
+    x_input : np.array
+        Input x values (typically CPS)
+    y_input : np.array
+        Input y values (typically concentration)
+    analyte_name : str
+        Name of the analyte being calibrated
+        
+    Returns
+    -------
+    dict
+        Dictionary containing slope, intercept, r-squared and analyte name
+    """
     mask = ~np.isnan(y_input)
     x = x_input[mask]
     y = y_input[mask]
@@ -196,46 +255,231 @@ def linreg(x_input, y_input):
     ss_res = np.sum((y-y_pred)**2)
     rsq = 1 - (ss_res/ss_tot)
 
-    return slope, intercept, rsq
+    return {
+        'analyte': analyte_name,
+        'slope': slope,
+        'intercept': intercept,
+        'r_squared': rsq
+    }
 
-def plot_calibration(dframe, save_location=False):
+def plot_calibration(dframe, save_location=False, prefix=''):
+    """
+    Plot calibration curves and return calibration coefficients
+    
+    Parameters
+    ----------
+    dframe : pandas.DataFrame
+        Calibration dataframe containing CPS and concentration columns
+    save_location : str, optional
+        Location to save the plot
+    prefix : str, optional
+        Prefix for the plot filename (e.g., 'blank_corrected_')
+    """
     from math import ceil
-    # Get the list of header to plot
+    
+    # Get the list of headers to plot
     header_to_plot = dframe.columns.to_list()[1:]
 
-    # calculate the number of plots need to be made
+    # Calculate the number of plots needed
     num_plots = int(len(header_to_plot)/2)
 
-    # number of rows in subplot
+    # Number of rows in subplot
     num_rows = int(ceil(num_plots/3))
     
     # Fig_size
     figsize_x = 3.5 * 3
     figsize_y = 3 * num_rows
 
-    # initiate figure
+    # Initiate figure
     fig, axs = subplots_centered(num_rows, 3, figsize=(figsize_x, figsize_y), nfigs=num_plots)
 
+    # Store calibration coefficients
+    calibration_coeffs = []
 
     for i in range(num_plots):
-        j=i*2
+        j = i*2
         x = dframe[header_to_plot[j]].to_numpy()
         y = dframe[header_to_plot[j+1]].to_numpy()
+        
+        # Get analyte name from the concentration column (removing '_conc' suffix)
+        analyte_name = header_to_plot[j+1].rsplit('_', 1)[0]
+        
+        # Calculate regression and store coefficients
+        coeff_dict = linreg(x, y, analyte_name)
+        calibration_coeffs.append(coeff_dict)
 
-        m, c, rsq = linreg(x, y)
-
+        # Plotting code remains the same
         axs[i].scatter(x, y, ec='maroon', fc='None', s=100)
-        axs[i].plot(x, m*x + c, 'k-', zorder=-5)
+        axs[i].plot(x, coeff_dict['slope']*x + coeff_dict['intercept'], 'k-', zorder=-5)
         axs[i].set_xlabel(header_to_plot[j])
         axs[i].set_ylabel(header_to_plot[j+1])
         axs[i].ticklabel_format(axis='x', style='sci', useMathText=True)
-        axs[i].text(0.97, 0.05, '$Y$ = {:.2e}$X$ + {:.2e}\n$R^2$ = {:.3f}'.format(m, c, rsq),
-           transform=axs[i].transAxes, ha='right', fontsize=10)
+        axs[i].text(0.97, 0.05, 
+                   '$Y$ = {:.2e}$X$ + {:.2e}\n$R^2$ = {:.3f}'.format(
+                       coeff_dict['slope'], 
+                       coeff_dict['intercept'], 
+                       coeff_dict['r_squared']),
+                   transform=axs[i].transAxes, ha='right', fontsize=10)
         
     plt.tight_layout()
 
     if save_location is not False:
-        plt.savefig(save_location+".png", dpi=300)
+        save_loc = os.path.splitext(save_location)[0]
+        if prefix:
+            save_loc = f"{save_loc}_{prefix}"
+        save_loc = f"{save_loc}.png"
+        plt.savefig(save_loc, dpi=300)
+    
+    # Convert coefficients to DataFrame
+    coeff_df = pd.DataFrame(calibration_coeffs)
+    
+    return coeff_df
+
+def calculate_concentrations(filtered_df, coeff_df):
+    """
+    Calculate concentrations using calibration coefficients
+    
+    Parameters
+    ----------
+    filtered_df : pandas.DataFrame
+        DataFrame containing the filtered CPS data
+    coeff_df : pandas.DataFrame
+        DataFrame containing calibration coefficients
+        
+    Returns
+    -------
+    pandas.DataFrame
+        DataFrame with calculated concentrations added
+    """
+    # Create copy of the input DataFrame
+    result_df = filtered_df.copy()
+    
+    # Add calculated concentrations for each analyte
+    for _, row in coeff_df.iterrows():
+        analyte = row['analyte']
+        slope = row['slope']
+        intercept = row['intercept']
+        
+        # Column name for CPS values
+        cps_col = f"{analyte}"
+        
+        if cps_col in filtered_df.columns:
+            # Calculate concentrations
+            conc_col = f"{analyte}_calc_conc"
+            result_df[conc_col] = (filtered_df[cps_col] * slope) + intercept
+    
+    return result_df
+
+def calculate_blank_corrected_data(filtered_df, blank_stats):
+    """
+    Apply blank correction to CPS data
+    
+    Parameters
+    ----------
+    filtered_df : pandas.DataFrame
+        DataFrame containing the filtered CPS data
+    blank_stats : pandas.DataFrame
+        DataFrame containing blank statistics
+        
+    Returns
+    -------
+    pandas.DataFrame
+        DataFrame with blank-corrected CPS values
+    """
+    corrected_df = filtered_df.copy()
+    
+    for col in blank_stats.index:
+        if col in corrected_df.columns:
+            blank_value = blank_stats.loc[col, 'mean']
+            corrected_df[col] = (corrected_df[col] - blank_value).clip(lower=0)
+            
+            # Add blank value for reference
+            corrected_df[f"{col}_blank_value"] = blank_value
+            
+    return corrected_df
+
+def process_calibration(df, df_calib, output_path, prefix=''):
+    """
+    Process calibration data and generate results
+    
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Input DataFrame with CPS values
+    df_calib : pandas.DataFrame
+        Calibration concentration data
+    output_path : str
+        Base path for saving files
+    prefix : str
+        Prefix for file names (e.g., 'original' or 'blank_corrected')
+        
+    Returns
+    -------
+    tuple
+        (results_df, coeff_df, calib_df)
+    """
+    # Create calibration merge
+    df_calib_merge = calib_dataframe(df, df_calib)
+    
+    # Get calibration coefficients and plot
+    coeff_df = plot_calibration(df_calib_merge, output_path, prefix=prefix)
+    
+    # Calculate concentrations
+    results_df = calculate_concentrations(df, coeff_df)
+    
+    return results_df, coeff_df, df_calib_merge
+
+def calculate_i_ca_ratios(df, sample_type, blank_corrected=False):
+    """
+    Calculate I:(Ca+Mg) ratios for iodine calcium samples
+    
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        DataFrame containing calculated concentrations
+    sample_type : str
+        Type of analysis ('total_digest' or 'i_ca')
+    blank_corrected : bool
+        Whether the input data is blank-corrected (used for output naming only)
+        
+    Returns
+    -------
+    pandas.DataFrame
+        DataFrame with added ratio columns
+    """
+    if sample_type != 'i_ca':
+        return df
+        
+    result_df = df.copy()
+    
+    # Molecular weights in g/mol
+    MW = {
+        'I': 126.90,
+        'Ca': 40.08,
+        'Mg': 24.31
+    }
+    
+    try:
+        # Always use _calc_conc suffix for input columns
+        suffix = '_calc_conc'
+        
+        # Convert to μmol/L
+        I_umol = df[f'I127(LR){suffix}'] / MW['I']
+        Ca43_umol = df[f'Ca43(MR){suffix}'] / MW['Ca']
+        Ca44_umol = df[f'Ca44(MR){suffix}'] / MW['Ca']
+        Mg_umol = df[f'Mg24(MR){suffix}'] / MW['Mg']
+        
+        # Add appropriate suffix for output ratio columns
+        ratio_suffix = '_blank_corrected' if blank_corrected else ''
+        
+        # Calculate ratios (μmol/mol)
+        result_df[f'I_Ca43+Mg_ratio{ratio_suffix}'] = I_umol / (Ca43_umol + Mg_umol) * 1000
+        result_df[f'I_Ca44+Mg_ratio{ratio_suffix}'] = I_umol / (Ca44_umol + Mg_umol) * 1000
+        
+    except Exception as e:
+        print(f"Error calculating ratios: {str(e)}")
+        
+    return result_df
 
 def select_files_from_multiple_folders():
     """
@@ -369,9 +613,10 @@ def load_asc_files(file_names):
     
     return final_df
 
-def save_dataframe(df, base_path, excel=False, filtered=False, calib=False):
+def save_dataframe(df, base_path, excel=False, filtered=False, calib=False, blank=False, 
+                  results=False, coeff=False, prefix=None):
     """
-    Save the DataFrame in both CSV and Excel formats
+    Save the DataFrame with proper prefix handling
     
     Parameters
     ----------
@@ -379,33 +624,46 @@ def save_dataframe(df, base_path, excel=False, filtered=False, calib=False):
         DataFrame to save
     base_path : str
         Base path for saving files (without extension)
-    filtered : bool
-        Whether this is a filtered DataFrame (adds _filtered to filename)
+    prefix : str, optional
+        Prefix to add before the type suffix (e.g., 'original' or 'blank_corrected')
     """
-    # Remove any extension from the base path
-    base_path = os.path.splitext(base_path)[0]
+    # Split the path into base and extension
+    path_parts = os.path.splitext(base_path)
+    base_without_ext = path_parts[0]
     
-    # Add filtered suffix if needed
+    # Build the filename components
+    components = [base_without_ext]
+    
+    # Add prefix if provided
+    if prefix:
+        components.append(prefix)
+    
+    # Add type suffix
     if filtered:
-        base_path = f"{base_path}_filtered"
+        components.append('filtered')
+    elif calib:
+        components.append('calibration_table')
+    elif blank:
+        components.append('blank_statistics')
+    elif results:
+        components.append('results')
+    elif coeff:
+        components.append('coefficients')
     
-    # Add calibration suffix if needed
-    if calib:
-        base_path = f"{base_path}_calib"
+    # Join components with underscores
+    final_base = '_'.join(components)
     
     # Save as CSV
-    csv_path = f"{base_path}.csv"
+    csv_path = f"{final_base}.csv"
     df.to_csv(csv_path, index=None)
     
-    # Save as Excel
+    # Save as Excel if requested
     if excel:
-        xlsx_path = f"{base_path}.xlsx"
+        xlsx_path = f"{final_base}.xlsx"
         df.to_excel(xlsx_path, index=None)
-    
         return csv_path, xlsx_path
     else:
         return csv_path
-
 
 if __name__ == "__main__":
     # Initialize Tkinter
@@ -439,10 +697,10 @@ if __name__ == "__main__":
                 filtered_csv_path = save_dataframe(
                     filtered_df, output_path, filtered=True
                 )
-                # Get whether user want to supply calibration data
-                calibration =get_calibration()
                 
-                calib_csv_path = "None"
+                # Get whether user want to supply calibration data
+                calibration = get_calibration()
+                
                 if calibration:
                     calib_file = filedialog.askopenfilename(
                         title="Select the Calibration Table", 
@@ -450,32 +708,98 @@ if __name__ == "__main__":
                         ("All files", "*.*")]
                     )
 
-                    df_calib = pd.read_csv(calib_file)
-                    df_calib_merge =calib_dataframe(filtered_df, df_calib)
+                    try:
+                        # Calculate blank statistics
+                        blank_stats = calculate_blank_averages(filtered_df)
+                        blank_stats_path = save_dataframe(
+                            blank_stats, output_path, blank=True
+                        )
+                        
+                        # Read calibration data
+                        df_calib = pd.read_csv(calib_file)
+                        
+                        # Process original version (without blank correction)
+                        results_df_orig, coeff_df_orig, calib_df_orig = process_calibration(
+                            filtered_df, df_calib, output_path, prefix='original'
+                        )
+                        
+                        # Save original version outputs
+                        results_csv_path_orig = save_dataframe(
+                            results_df_orig, output_path, results=True, prefix='original'
+                        )
+                        coeff_csv_path_orig = save_dataframe(
+                            coeff_df_orig, output_path, coeff=True, prefix='original'
+                        )
+                        calib_csv_path_orig = save_dataframe(
+                            calib_df_orig, output_path, calib=True, prefix='original'
+                        )
+                        
+                        # Process blank-corrected version
+                        corrected_df = calculate_blank_corrected_data(filtered_df, blank_stats)
+                        results_df_corr, coeff_df_corr, calib_df_corr = process_calibration(
+                            corrected_df, df_calib, output_path, prefix='blank_corrected'
+                        )
+                        
+                        # Save blank-corrected version outputs
+                        results_csv_path_corr = save_dataframe(
+                            results_df_corr, output_path, results=True, prefix='blank_corrected'
+                        )
+                        coeff_csv_path_corr = save_dataframe(
+                            coeff_df_corr, output_path, coeff=True, prefix='blank_corrected'
+                        )
+                        calib_csv_path_corr = save_dataframe(
+                            calib_df_corr, output_path, calib=True, prefix='blank_corrected'
+                        )
+                        
+                        # Calculate I:Ca+Mg ratios if it's an i_ca sample
+                        if sample_type == 'i_ca':
+                            results_df_orig = calculate_i_ca_ratios(
+                                results_df_orig, sample_type, blank_corrected=False
+                            )
+                            results_df_corr = calculate_i_ca_ratios(
+                                results_df_corr, sample_type, blank_corrected=True
+                            )
+                            
+                            # Save updated results with ratios
+                            results_csv_path_orig = save_dataframe(
+                                results_df_orig, output_path, results=True, prefix='original'
+                            )
+                            results_csv_path_corr = save_dataframe(
+                                results_df_corr, output_path, results=True, prefix='blank_corrected'
+                            )
 
-                    # Save calibration plot
-                    plot_calibration(df_calib_merge, output_path)
+                        messagebox.showinfo(
+                            "Files Processed",
+                            f"Successfully processed {len(filenames)} files.\n\n"
+                            f"Complete data saved as:\n"
+                            f"CSV: {os.path.basename(csv_path)}\n"
+                            f"Filtered data saved as:\n"
+                            f"CSV: {os.path.basename(filtered_csv_path)}\n"
+                            f"Blank statistics saved as:\n"
+                            f"CSV: {os.path.basename(blank_stats_path)}\n\n"
+                            f"Original version files:\n"
+                            f"Results: {os.path.basename(results_csv_path_orig)}\n"
+                            f"Coefficients: {os.path.basename(coeff_csv_path_orig)}\n"
+                            f"Calibration: {os.path.basename(calib_csv_path_orig)}\n\n"
+                            f"Blank-corrected version files:\n"
+                            f"Results: {os.path.basename(results_csv_path_corr)}\n"
+                            f"Coefficients: {os.path.basename(coeff_csv_path_corr)}\n"
+                            f"Calibration: {os.path.basename(calib_csv_path_corr)}"
+                        )
 
-                    # Export Calibration Table
-                    calib_csv_path = save_dataframe(
-                    df_calib_merge, output_path, calib=True
-                )
-
+                    except Exception as e:
+                        messagebox.showerror("Error", f"An error occurred during calibration: {str(e)}")
+                
                 else:
-                    messagebox.showerror(
-                        "It's OK", "No Concetration data is selected."
+                    messagebox.showinfo(
+                        "Processing Complete", 
+                        f"Successfully processed {len(filenames)} files.\n\n"
+                        f"Complete data saved as:\n"
+                        f"CSV: {os.path.basename(csv_path)}\n"
+                        f"Filtered data saved as:\n"
+                        f"CSV: {os.path.basename(filtered_csv_path)}"
                     )
 
-                messagebox.showinfo(
-                    "Files Processed",
-                    f"Successfully processed {len(filenames)} files.\n\n"
-                    f"Complete data saved as:\n"
-                    f"CSV: {os.path.basename(csv_path)}\n"
-                    f"Filtered data saved as:\n"
-                    f"CSV: {os.path.basename(filtered_csv_path)}\n"
-                    f"Calibration table saved as:\n"
-                    f"CSV: {os.path.basename(calib_csv_path)}\n"
-                )
             except Exception as e:
                 messagebox.showerror("Error", f"An error occurred: {str(e)}")
         else:
