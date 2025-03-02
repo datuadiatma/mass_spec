@@ -87,8 +87,8 @@ def filter_columns(df, sample_type):
     total_digest_cols = [
         'Sample_ID', 'Sample_Type', 'Standard_Type',
         'Ti47(LR)', 'Ti49(LR)', 'V51(LR)', 'Mo95(LR)', 'Mo98(LR)', 
-        'In115(LR)', 'U238(LR)', 'Li7(MR)', 'Al27(MR)', 'Mn55(MR)', 
-        'Fe56(MR)', 'Fe57(MR)', 'In115(MR)', 'U238(MR)',
+        'U238(LR)', 'Al27(MR)', 'Mn55(MR)', 
+        'Fe56(MR)', 'Fe57(MR)', 'U238(MR)',
         'Ti47(LR)_rsd', 'Ti49(LR)_rsd', 'V51(LR)_rsd', 'Mo95(LR)_rsd', 
         'Mo98(LR)_rsd', 'In115(LR)_rsd', 'U238(LR)_rsd', 'Li7(MR)_rsd', 
         'Al27(MR)_rsd', 'Mn55(MR)_rsd', 'Fe56(MR)_rsd', 'Fe57(MR)_rsd', 
