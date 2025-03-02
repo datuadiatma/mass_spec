@@ -87,8 +87,8 @@ def filter_columns(df, sample_type):
     total_digest_cols = [
         'Sample_ID', 'Sample_Type', 'Standard_Type',
         'Ti47(LR)', 'Ti49(LR)', 'V51(LR)', 'Mo95(LR)', 'Mo98(LR)', 
-        'In115(LR)', 'U238(LR)', 'Li7(MR)', 'Al27(MR)', 'Mn55(MR)', 
-        'Fe56(MR)', 'Fe57(MR)', 'In115(MR)', 'U238(MR)',
+        'U238(LR)', 'Al27(MR)', 'Mn55(MR)', 
+        'Fe56(MR)', 'Fe57(MR)', 'U238(MR)',
         'Ti47(LR)_rsd', 'Ti49(LR)_rsd', 'V51(LR)_rsd', 'Mo95(LR)_rsd', 
         'Mo98(LR)_rsd', 'In115(LR)_rsd', 'U238(LR)_rsd', 'Li7(MR)_rsd', 
         'Al27(MR)_rsd', 'Mn55(MR)_rsd', 'Fe56(MR)_rsd', 'Fe57(MR)_rsd', 
@@ -97,8 +97,9 @@ def filter_columns(df, sample_type):
     
     i_ca_cols = [
         'Sample_ID', 'Sample_Type', 'Standard_Type',
-        'I127(LR)', 'Mg24(MR)', 'Ca43(MR)', 'Ca44(MR)',
-        'I127(LR)_rsd', 'Mg24(MR)_rsd', 'Ca43(MR)_rsd', 'Ca44(MR)_rsd'
+        'I127(LR)', 'Mg24(MR)', 'Ca43(MR)', 'Ca44(MR)', 'I127(MR)',
+        'I127(LR)_rsd', 'Mg24(MR)_rsd', 'Ca43(MR)_rsd', 'Ca44(MR)_rsd',
+        'I127(MR)_rsd'
     ]
     
     columns_to_keep = total_digest_cols if sample_type == 'total_digest' else i_ca_cols
@@ -465,6 +466,7 @@ def calculate_i_ca_ratios(df, sample_type, blank_corrected=False):
         
         # Convert to μmol/L
         I_umol = df[f'I127(LR){suffix}'] / MW['I']
+        I_MR_umol = df[f'I127(MR){suffix}'] / MW['I']
         Ca43_umol = df[f'Ca43(MR){suffix}'] / MW['Ca']
         Ca44_umol = df[f'Ca44(MR){suffix}'] / MW['Ca']
         Mg_umol = df[f'Mg24(MR){suffix}'] / MW['Mg']
@@ -475,6 +477,7 @@ def calculate_i_ca_ratios(df, sample_type, blank_corrected=False):
         # Calculate ratios (μmol/mol)
         result_df[f'I_Ca43+Mg_ratio{ratio_suffix}'] = I_umol / (Ca43_umol + Mg_umol) * 1000
         result_df[f'I_Ca44+Mg_ratio{ratio_suffix}'] = I_umol / (Ca44_umol + Mg_umol) * 1000
+        result_df[f'I_MR_Ca43+Mg_ratio{ratio_suffix}'] = I_MR_umol / (Ca43_umol + Mg_umol) * 1000
         
     except Exception as e:
         print(f"Error calculating ratios: {str(e)}")
