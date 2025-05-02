@@ -13,3 +13,17 @@ This repository contains poorly written but useful scripts that I often use to p
 ├── Triton    (Thermo Triton TIMS, soon to be publised)
     ├── spike_reduction.py    (spike reduction for Isotope Dilution)
 ```
+
+## Change Log
+```bash
+Element2
+========
+2024/11/17
+enable multi-file processing
+
+2024/11/18 
+add calibration table template to calculate concentrations
+
+2024/12/30
+add blank correction
+```
